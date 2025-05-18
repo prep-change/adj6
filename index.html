@@ -34,7 +34,6 @@
     };
 
     let latestInput = {};
-    let excludedShortageAdjustments = new Set();
     const knapsackCache = new Map();
 
     const inputArea = document.getElementById("input-area");
@@ -80,15 +79,37 @@
         return;
       }
 
-      excludedShortageAdjustments = new Set(
+      const input = latestInput;
+
+      // 1. 手動固定セットを取得
+      const manualFixed = new Set(
         denominations.filter(denom => document.getElementById(`exclude${denom}`).checked)
       );
+
+      // 2. 自動固定（目標達成済み金種）
+      const autoFixed = new Set(
+        denominations.filter(denom => input[denom] >= baseTargets[denom])
+      );
+
+      const tryFixedSets = [
+        manualFixed.size > 0 ? manualFixed : null,
+        manualFixed.size === 0 ? autoFixed : null,
+        null // 完全に固定なし
+      ];
 
       document.getElementById("adjustmentResult").innerText = "調整中です...";
       await new Promise(resolve => setTimeout(resolve, 50));
 
-      const input = latestInput;
-      const best = findOptimalAdjustment(input, baseTargets);
+      let best = null;
+      for (let fixedSet of tryFixedSets) {
+        if (fixedSet === null) {
+          best = findOptimalAdjustment(input, baseTargets, new Set());
+        } else {
+          best = findOptimalAdjustment(input, baseTargets, fixedSet);
+        }
+        if (best) break;
+      }
+
       if (!best) {
         document.getElementById("adjustmentResult").innerText = "※ 補填できませんでした。";
         return;
@@ -118,9 +139,9 @@
       document.getElementById("adjustmentResult").innerText = resultText;
     }
 
-    function findOptimalAdjustment(input, baseTargets, maxTry = 10) {
+    function findOptimalAdjustment(input, baseTargets, excludeSet, maxTry = 10) {
       for (let t = 0; t <= maxTry; t++) {
-        const patterns = generateAdjustmentPatterns(baseTargets, t, excludedShortageAdjustments);
+        const patterns = generateAdjustmentPatterns(baseTargets, t, excludeSet);
         for (let newTargets of patterns) {
           const shortage = {};
           let shortageTotal = 0, shortageCount = 0;
