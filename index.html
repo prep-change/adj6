@@ -34,6 +34,7 @@
     };
 
     let latestInput = {};
+    let excludedShortageAdjustments = new Set();
     const knapsackCache = new Map();
 
     const inputArea = document.getElementById("input-area");
@@ -81,33 +82,29 @@
 
       const input = latestInput;
 
-      // 1. 手動固定セットを取得
-      const manualFixed = new Set(
+      // 手動固定のみを反映
+      const manuallyExcluded = new Set(
         denominations.filter(denom => document.getElementById(`exclude${denom}`).checked)
       );
 
-      // 2. 自動固定（目標達成済み金種）
+      // 自動固定候補（手動固定されておらず目標達成済み）
       const autoFixed = new Set(
-        denominations.filter(denom => input[denom] >= baseTargets[denom])
+        denominations.filter(denom =>
+          !manuallyExcluded.has(denom) && input[denom] >= baseTargets[denom]
+        )
       );
 
-      const tryFixedSets = [
-        manualFixed.size > 0 ? manualFixed : null,
-        manualFixed.size === 0 ? autoFixed : null,
-        null // 完全に固定なし
-      ];
+      // 一次試行：手動固定＋自動固定を除外対象として使用
+      let excluded = new Set([...manuallyExcluded, ...autoFixed]);
 
       document.getElementById("adjustmentResult").innerText = "調整中です...";
       await new Promise(resolve => setTimeout(resolve, 50));
 
-      let best = null;
-      for (let fixedSet of tryFixedSets) {
-        if (fixedSet === null) {
-          best = findOptimalAdjustment(input, baseTargets, new Set());
-        } else {
-          best = findOptimalAdjustment(input, baseTargets, fixedSet);
-        }
-        if (best) break;
+      let best = findOptimalAdjustment(input, baseTargets, excluded);
+      if (!best && manuallyExcluded.size === 0 && autoFixed.size > 0) {
+        // 手動固定されておらず、自動固定によって失敗した場合は再試行（固定解除）
+        excluded = manuallyExcluded;
+        best = findOptimalAdjustment(input, baseTargets, excluded);
       }
 
       if (!best) {
@@ -144,7 +141,7 @@
         const patterns = generateAdjustmentPatterns(baseTargets, t, excludeSet);
         for (let newTargets of patterns) {
           const shortage = {};
-          let shortageTotal = 0, shortageCount = 0;
+          let shortageTotal = 0;
 
           for (let denom of denominations) {
             const need = newTargets[denom] || 0;
@@ -152,7 +149,6 @@
             if (lack > 0) {
               shortage[denom] = lack;
               shortageTotal += denom * lack;
-              shortageCount += lack;
             }
           }
 
@@ -164,7 +160,7 @@
 
           const combo = knapsack(usableCoins, shortageTotal);
           if (combo) {
-            return { newTargets, shortage, shortageCount, shortageTotal, combo };
+            return { newTargets, shortage, shortageTotal, combo };
           }
         }
       }
