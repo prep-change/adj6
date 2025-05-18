@@ -8,7 +8,7 @@
 </head>
 <body class="bg-gray-100">
   <div class="max-w-2xl mx-auto p-4">
-    <h1 class="text-2xl font-bold mb-4 text-center">釣銭準備</h1>
+    <h1 class="text-2xl font-bold mb-4 text-center">釣銭準備（自動固定のみ）</h1>
 
     <div id="input-area" class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6"></div>
 
@@ -34,7 +34,6 @@
     };
 
     let latestInput = {};
-    let excludedShortageAdjustments = new Set();
     const knapsackCache = new Map();
 
     const inputArea = document.getElementById("input-area");
@@ -44,10 +43,6 @@
       wrapper.innerHTML = `
         <label class="w-20 font-medium">${denom}円</label>
         <input id="input${denom}" type="number" min="0" value="" class="flex-1 p-1 border rounded w-full" />
-        <label class="text-sm whitespace-nowrap">
-          <input id="exclude${denom}" type="checkbox" class="mr-1" />
-          固定
-        </label>
       `;
       inputArea.appendChild(wrapper);
     });
@@ -82,28 +77,23 @@
 
       const input = latestInput;
 
-      // 手動固定のみを反映
-      const manuallyExcluded = new Set(
-        denominations.filter(denom => document.getElementById(`exclude${denom}`).checked)
-      );
-
-      // 自動固定候補（手動固定されておらず目標達成済み）
+      // 自動固定候補（目標達成済みの金種）
       const autoFixed = new Set(
         denominations.filter(denom =>
-          !manuallyExcluded.has(denom) && input[denom] >= baseTargets[denom]
+          input[denom] >= baseTargets[denom]
         )
       );
 
-      // 一次試行：手動固定＋自動固定を除外対象として使用
-      let excluded = new Set([...manuallyExcluded, ...autoFixed]);
+      // 最初は自動固定を除外して試す
+      let excluded = autoFixed;
 
       document.getElementById("adjustmentResult").innerText = "調整中です...";
       await new Promise(resolve => setTimeout(resolve, 50));
 
       let best = findOptimalAdjustment(input, baseTargets, excluded);
-      if (!best && manuallyExcluded.size === 0 && autoFixed.size > 0) {
-        // 手動固定されておらず、自動固定によって失敗した場合は再試行（固定解除）
-        excluded = manuallyExcluded;
+      if (!best && autoFixed.size > 0) {
+        // 自動固定を外して再試行
+        excluded = new Set();
         best = findOptimalAdjustment(input, baseTargets, excluded);
       }
 
